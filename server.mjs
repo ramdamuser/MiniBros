@@ -49,7 +49,7 @@ const server=http.createServer(async(req,res)=>{
    else return send(res,404,{error:'Not found'});
    return send(res,200,{ok:true});
   }
-  const files={'/':'index.html','/app.js':'app.js','/engine.js':'engine.js','/balance.js':'balance.js','/netcode.js':'netcode.js','/multiplayer.js':'multiplayer.js','/style.css':'style.css'};
+  const files={'/':'index.html','/app.js':'app.js','/engine.js':'engine.js','/balance.js':'balance.js','/abilities.js':'abilities.js','/netcode.js':'netcode.js','/multiplayer.js':'multiplayer.js','/style.css':'style.css'};
   const file=files[url.pathname];if(!file){res.writeHead(404);return res.end('Not found');}
   res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html','Cache-Control':'no-cache'});
   res.end(await readFile(new URL(`./public/${file}`,import.meta.url)));

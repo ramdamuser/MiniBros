@@ -38,9 +38,10 @@ export class Multiplayer {
   if(!this.ready)return;
   for(const key of ACTIONS)if(held[key]&&!this.lastHeld[key])this.edges[key]=true;
   this.lastHeld={...held};
+  let stepped=false;
   this.accumulator+=Math.min(dt,.1);
   while(this.accumulator>=FIXED_DT){
-   this.accumulator-=FIXED_DT;
+   this.accumulator-=FIXED_DT;stepped=true;
    const input=cleanInput({...held,presses:this.edges});this.edges={};
    const command={seq:++this.seq,input};this.outbox.push(command);this.view.advance(command);
   }
@@ -50,6 +51,7 @@ export class Multiplayer {
    while(this.outbox.length){const commands=this.outbox.splice(0,8);this.socket.send(JSON.stringify({type:'input',generation:this.generation,commands}));}
    this.lastSend=now;
   }
+  return stepped;
  }
  render(now,dt){return this.view.render(now,dt);}
  close(){this.closed=true;this.ready=false;clearInterval(this.heartbeat);clearTimeout(this.retry);this.socket?.close();this.view.reset();}
