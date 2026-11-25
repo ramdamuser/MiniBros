@@ -28,7 +28,7 @@ try {
  const state=await evaluate("({hidden:document.querySelector('#game').hidden,modal:document.querySelector('#modal').open,timer:document.querySelector('#timer').textContent,hud:document.querySelector('#hud').textContent,pixel:Array.from(document.querySelector('#arena').getContext('2d').getImageData(50,50,1,1).data)})");
  console.log(JSON.stringify({deniedGamepad:!!process.env.DENY_GAMEPAD,state,errors},null,2));
  assert.deepEqual(errors,[],'Browser must not throw');assert.equal(state.hidden,false);assert.equal(state.modal,false);assert.ok(state.hud.includes('Naruto'));assert.notEqual(state.timer,'1:30');assert.equal(state.pixel[3],255,'Arena must render');
- await evaluate(`window.playerDraws=[];const draw=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(text,x,y,...rest){if(text==='YOU')window.playerDraws.push({x,y});return draw.call(this,text,x,y,...rest)};window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyA'}));`);
+ await evaluate(`window.playerDraws=[];const draw=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(text,x,y,...rest){if(text==='YOU')window.playerDraws.push({x,y,at:performance.now()});return draw.call(this,text,x,y,...rest)};window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyA'}));`);
  await new Promise(resolve=>setTimeout(resolve,250));
  await evaluate("window.dispatchEvent(new KeyboardEvent('keyup',{code:'KeyA'}));window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyL'}))");
  await new Promise(resolve=>setTimeout(resolve,100));
@@ -38,4 +38,32 @@ try {
  assert.ok(positions.at(-1).x<positions[0].x,'Keyboard movement works');
  assert.deepEqual(errors,[],'Movement and parry must render without exceptions');
  console.log('Singleplayer browser launch, countdown, keyboard movement, and parry passed.');
+ if(process.env.DIAGNOSE_LAG){
+  await evaluate(`document.querySelector('#exit').click();document.querySelector('#confirm-exit').click();document.querySelector('#host').click();`);
+  await evaluate(`window.inputPackets=[];window.receivedStates=[];window.measureInputs=false;
+   window.NativeSocket=window.WebSocket;
+   window.WebSocket=class extends NativeSocket{
+    constructor(...args){super(...args);this.addEventListener('message',e=>{const state=JSON.parse(e.data);if(window.measureInputs&&state.type==='state')window.receivedStates.push({at:performance.now(),state});});}
+    send(data){const message=JSON.parse(data);if(window.measureInputs&&message.type==='input')window.inputPackets.push({at:performance.now(),...message});setTimeout(()=>{if(this.readyState===1)super.send(data);},100);}
+    set onmessage(handler){super.onmessage=e=>setTimeout(()=>handler(e),100);}
+   };
+   document.querySelector('#enter').click();`);
+  const until=async(expression,timeout=10000)=>{const end=Date.now()+timeout;while(!await evaluate(expression)){assert.ok(Date.now()<end,'Timed out: '+expression);await new Promise(r=>setTimeout(r,50));}};
+  await until("!!document.querySelector('.room-code')");
+  await evaluate(`(async()=>{const result=await fetch('/api/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Luffy',code:document.querySelector('.room-code').textContent})}).then(r=>r.json());window.guestId=result.id;window.guestSocket=new NativeSocket('ws://localhost:3107/ws');guestSocket.onopen=()=>guestSocket.send(JSON.stringify({type:'auth',token:result.token}));})()`);
+  await until("!document.querySelector('#start-party').disabled");
+  await evaluate("document.querySelector('#start-party').click()");
+  await until("!document.querySelector('#game').hidden&&document.querySelector('#game-message').textContent===''");
+  await evaluate(`window.inputPackets=[];window.receivedStates=[];window.playerDraws=[];window.measureInputs=true;window.inputStarted=performance.now();window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyD'}));window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyJ'}));window.dispatchEvent(new KeyboardEvent('keyup',{code:'KeyJ'}));setTimeout(()=>window.dispatchEvent(new KeyboardEvent('keyup',{code:'KeyD'})),180);`);
+  await new Promise(resolve=>setTimeout(resolve,1200));
+  const report=await evaluate(`(()=>{const packets=window.inputPackets,states=window.receivedStates;return {simulatedRoundTripDelayMs:200,inputPackets:packets.length,meanInputIntervalMs:(packets.at(-1).at-packets[0].at)/(packets.length-1),quickAttackSent:packets.some(p=>p.commands.some(c=>c.input.presses.basic)),quickAttackOnServer:states.some(s=>s.state.game.players.some(p=>p.id!==window.guestId&&p.attack)),predictedMovementBeforeReply:window.playerDraws.filter(p=>p.at-window.inputStarted<90).some((p,i,draws)=>i>0&&p.x>draws[0].x+1)};})()`);
+  console.log('Multiplayer latency regression:',JSON.stringify(report,null,2));
+  assert.ok(report.meanInputIntervalMs<70,'Input cadence must not wait for round-trip responses');
+  assert.ok(report.quickAttackSent&&report.quickAttackOnServer,'A press and release within one browser task reaches the server');
+  assert.ok(report.predictedMovementBeforeReply,'Movement renders before a server response can arrive');
+  assert.deepEqual(errors,[]);
+  await evaluate("window.guestSocket.close();document.querySelector('#exit').click();document.querySelector('#confirm-exit').click()");
+ }
+
+
 } finally {if(browser){browser.kill();await new Promise(resolve=>browser.once('exit',resolve));}server.kill();await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100});}

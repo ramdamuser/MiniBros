@@ -1,1 +1,13 @@
-{"name":"minibros","version":"0.1.0","private":true,"type":"module","scripts":{"start":"node server.mjs","test":"node test/engine.mjs"}}
+{
+  "name": "minibros",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node test/engine.mjs && node test/netcode.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.23.0"
+  }
+}

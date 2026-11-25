@@ -1,16 +1,17 @@
 # MiniBros
 
-A playable browser platform-fighter prototype based on the supplied design document. Built with Canvas 2D, native browser modules, and a dependency-free Node HTTP server.
+A playable browser platform-fighter prototype based on the supplied design document. Built with Canvas 2D, native browser modules, and a Node HTTP/WebSocket server using `ws`.
 
 ## Run
 
 Requires Node.js 16 or newer (a maintained Node release is recommended).
 
 ```sh
+npm ci
 npm start
 ```
 
-Open http://localhost:3000. To play with friends on your network, each player opens `http://<host-computer-LAN-IP>:3000`. Create a party, share its six-character room code, and start once two or more players have joined. The server listens on all interfaces; your firewall must permit the connection. A room code only works on the server that created it. Internet play requires separately hosting this server; this project is not deployed.
+Open http://localhost:3000. To play with friends on your network, each player opens `http://<host-computer-LAN-IP>:3000`. Create a party, share its six-character room code, and start once two or more players have joined. The server listens on all interfaces; your firewall must permit the connection. A room code only works on the server that created it. Internet play requires hosting this server. After updating the source on Render, redeploy the service and refresh all players’ browsers together. The new multiplayer client requires the new WebSocket server.
 
 ## Play
 
@@ -37,20 +38,30 @@ node test/rooms.mjs
 # macOS with Google Chrome installed (starts its own temporary server):
 node test/browser.mjs
 DENY_GAMEPAD=1 node test/browser.mjs
+# Verify multiplayer with 100 ms delay each way (200 ms round trip):
+DIAGNOSE_LAG=1 node test/browser.mjs
 ```
 
-Combat checks cover jump limits, attack repeat prevention, parries, blocking, stamina exhaustion, round/match transitions, and timer tie handling. Integration checks cover HTTP serving, party creation/join, capacity, host authority, session-token privacy, inputs, SSE snapshots, and room cleanup.
+Combat checks cover jump limits, attack repeat prevention, parries, blocking, stamina exhaustion, round/match transitions, and timer tie handling. Netcode checks cover press-edge retention, command deduplication, prediction/reconciliation, remote interpolation, match resets, and elimination. Integration checks cover HTTP serving, party creation/join, capacity, host authority, WebSocket authentication, snapshots, authoritative quick-tap handling, reconnect, and stale-match input. The delayed browser test asserts that input delivery does not wait for replies, quick taps reach the server, and movement is visible before an authoritative reply arrives.
 
 ## Implementation and prototype limits
 
 - `public/engine.js`: shared fixed-step combat simulation and bot decisions.
 - `public/app.js`: lobby, settings, procedural sprite/arena renderer, audio, inputs, and network client.
-- `server.mjs`: authoritative party simulation at 60 Hz, snapshots at 20 Hz via Server-Sent Events, and input POSTs.
+- `server.mjs`: authoritative party simulation at 60 Hz and snapshots at 20 Hz over authenticated WebSockets. HTTP is used only for room actions and static files.
+- `public/multiplayer.js`: WebSocket lifecycle, heartbeat/reconnect, and sequenced input batches sent at approximately 30 Hz.
+- `public/netcode.js`: bounded server input queue, local prediction/reconciliation, and remote interpolation.
 - `public/style.css`: responsive lobby and game UI.
 
 This is an initial playable implementation, not the finished asset or competitive networking pipeline. Art uses original procedural pixel shapes and animation rather than finished 4–10-frame sprite sheets. Specials approximate the described abilities; Dempsey Roll is a dash strike rather than a full weaving multi-hit animation, and there are no projectiles to deflect yet. Combat uses simple range checks; a production fighter needs animation-specific hitboxes, tuning, and playtesting. Rendering uses Canvas 2D, not WebGL/PixiJS/Phaser. Fonts load from Google Fonts with local fallbacks.
 
-Multiplayer is suitable for prototype/LAN testing. It has no rollback, client prediction, latency compensation, accounts, persistent rooms, or production abuse controls. A client that stops sending inputs for one second is neutralized; inactive sessions expire after 15 seconds. Closing a tab relinquishes its slot after expiry. A departing host transfers host status. Closing a local match's dialog resumes simulation; multiplayer continues while dialogs are open.
+Multiplayer predicts your own movement and attack animations immediately, then replays unacknowledged inputs against each authoritative server update. Small position corrections blend out; knockouts and match resets apply immediately. Other players are interpolated through a 100 ms snapshot buffer. Press events are preserved separately from held buttons, and the server consumes each sequence only once. Simulation timing tracks elapsed time, with bounded catch-up after a short stall.
+
+Hits, damage, parry outcomes, knockouts, and scores remain authoritative. This is not rollback combat: high network latency still affects hit confirmation and parry timing, and prediction may visibly correct after collisions. A nearby server region remains important. There are no accounts, persistent rooms, or production abuse controls. Keep one server instance because rooms are stored in memory.
+
+Disconnecting a socket immediately clears held input. A client that stops sending inputs for one second is neutralized; inactive sessions expire after 15 seconds. The client reconnects automatically while its session still exists, clears obsolete input, and resumes from the last acknowledged sequence. A departing host transfers host status. Closing a local match's dialog resumes simulation; multiplayer continues while dialogs are open.
+
+Render configuration remains a Node Web Service with build command `npm ci` (or `npm install`) and start command `npm start`. Include `package-lock.json` and both new browser modules when deploying. HTTPS pages automatically connect with `wss://` on the same host and port; no additional port or environment variable is needed. A deploy restarts the in-memory server and ends existing rooms.
 
 Audio is synthesized, with separate master, SFX, and music gains. Browser audio starts after the first pointer interaction. Headless Chrome checks cover singleplayer launch, arena rendering, countdown progression, keyboard movement, and parry rendering, including when browser policy blocks controller access. Visual polish, actual gamepad hardware, and cross-device latency testing still require manual verification.
 # MiniBros
