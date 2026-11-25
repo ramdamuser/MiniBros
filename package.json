@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node test/engine.mjs && node test/netcode.mjs"
+    "test": "node test/engine.mjs && node test/netcode.mjs && node test/balance.mjs"
   },
   "dependencies": {
     "ws": "^8.23.0"

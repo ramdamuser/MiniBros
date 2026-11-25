@@ -29,6 +29,64 @@ Reach zero stamina to become exhausted. Parry to negate a hit, stun the attacker
 
 Singleplayer has three bot difficulties. Easy bots do not parry. Medium and Hard bots make one parry decision per incoming attack (12% / 28% chance), react after a delay, and wait at least 2.5 / 1.6 seconds between attempts. They cannot reactively parry during their own attack or while stunned or exhausted. First to two round wins wins the match. Rounds last 90 seconds; timeout ranks surviving players by KO score, then damage received. Exact ties trigger a 15-second sudden-death extension with at least 150% damage. In parties with more than two players, first-to-two can take more than three rounds.
 
+## Balancing characters and abilities
+
+Edit **`public/balance.js`**. This is the single source of combat tuning used by singleplayer, the multiplayer server, and client prediction. The current values preserve the previous balance. `public/engine.js` is now formatted into separate movement, attack, defense, physics, and round-handling functions; ordinary number changes do not require editing it.
+
+| Config section | What to change |
+| --- | --- |
+| `movement` | Gravity, acceleration, jump speed/count, dash speed/duration/cost, dash invulnerability |
+| `stamina` | Maximum stamina, regeneration, exhaustion duration |
+| `defense` | Parry timing/cost/reward/stun, block drain and movement penalty |
+| `attacks.common` | Hit timing, hitbox ranges, hitstun, block stamina damage, knockback formula |
+| `attacks.basic` | Universal basic attack damage/cost/cooldown and directional variants |
+| `attacks.special` | Fallback special values and shared directional/recovery behavior |
+| `fighters.Naruto`, `fighters.Luffy`, `fighters.Ippo` | Speed, weight, reach, damage multiplier, and character-specific overrides |
+| `fighters.<name>.specials.<ability>` | Each named special's numbers and effects |
+| `bots` | Bot attack frequency, parry probability, reaction time and parry cooldown |
+
+The six specials have separate blocks: `rasengan`, `shadowCloneDash`, `gumGumPistol`, `gumGumBalloon`, `dempseyRoll`, and `liverBlow`. Each character's `specialInputs` maps neutral/side/up/down to a block. All abilities accept the fields listed in `attacks.common` as well as `damage`, `reach`, `staminaCost`, and `cooldown`.
+
+For example, edit Naruto's existing `rasengan` block to reduce damage and cost and increase its cooldown:
+
+```js
+rasengan: {
+  name: 'Rasengan',
+  damage: 12,
+  reach: 105,
+  staminaCost: 25,
+  cooldown: 0.8,
+  dashSpeed: 600,
+  dashDuration: 0.16,
+  airborne: { damage: 10 },
+  directions: {
+    up: { recoverySpeed: 650 },
+  },
+},
+```
+
+To change only Ippo's side basic attack, replace his empty `basic: {}` block:
+
+```js
+basic: {
+  directions: {
+    side: {
+      damage: 13,
+      cooldown: 0.45,
+      airborne: { verticalKnockback: -0.7 },
+    },
+  },
+},
+```
+
+Values merge in this order: **common → basic/special defaults → character move**. Within each layer, the grounded/airborne override applies, followed by the direction override, then that direction's grounded/airborne override. Later values win. An explicit value in a named special overrides the shared special default; remove that field to inherit it instead. Character `movement`, `stamina`, and `defense` blocks similarly override their shared sections.
+
+Use seconds for durations, world pixels for reach, pixels/second for speeds, and stamina points for costs. Gravity uses pixels/second². Damage is added to the opponent's percentage after multiplying by the attacker's `power`. `weight` divides incoming knockback. Horizontal force is `(knockbackBase + victimDamageAfterHit * knockbackPerDamage) * knockbackMultiplier / victimWeight`; `verticalKnockback` scales that force, with negative values launching upward and positive values downward.
+
+`windup` is the delay before a **single hit check**, not a repeated damage interval. `animationDuration` includes windup and should be at least as long. `cooldown` starts at attack initiation. Keep weight, stamina maximum, and damage multipliers positive; use nonnegative costs, times, reach, and speed magnitudes. `reach: null` uses the character's basic reach, with `reachBonus` added afterward. Zero disables a cost or timed effect. `staminaDamage` drains stamina on unblocked hits; `blockStaminaDamage` drains it on blocked hits. The existing direct-hit stamina drain behavior is preserved; it does not independently trigger exhaustion.
+
+After changes, restart the Node server, refresh all browsers, and start a new match. For Render, commit and deploy `public/balance.js` together with the updated engine, UI, and server route, then refresh both players. Server and client must use the same config for prediction to stay consistent. Run `npm test`; the tests in `test/balance.mjs` exercise config changes and restore the originals afterward.
+
 ## Verification
 
 ```sh
@@ -46,7 +104,8 @@ Combat checks cover jump limits, attack repeat prevention, parries, blocking, st
 
 ## Implementation and prototype limits
 
-- `public/engine.js`: shared fixed-step combat simulation and bot decisions.
+- `public/balance.js`: documented combat defaults, fighter stats, named special moves, and directional/aerial overrides.
+- `public/engine.js`: formatted shared fixed-step combat simulation and bot decisions.
 - `public/app.js`: lobby, settings, procedural sprite/arena renderer, audio, inputs, and network client.
 - `server.mjs`: authoritative party simulation at 60 Hz and snapshots at 20 Hz over authenticated WebSockets. HTTP is used only for room actions and static files.
 - `public/multiplayer.js`: WebSocket lifecycle, heartbeat/reconnect, and sequenced input batches sent at approximately 30 Hz.
