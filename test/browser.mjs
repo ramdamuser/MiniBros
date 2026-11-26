@@ -71,7 +71,7 @@ try {
    window.WebSocket=class extends NativeSocket{
     constructor(...args){super(...args);this.addEventListener('message',e=>{const state=JSON.parse(e.data);if(window.measureInputs&&state.type==='state')window.receivedStates.push({at:performance.now(),state});});}
     send(data){const message=JSON.parse(data);if(window.measureInputs&&message.type==='input')window.inputPackets.push({at:performance.now(),...message});setTimeout(()=>{if(this.readyState===1)super.send(data);},100);}
-    set onmessage(handler){super.onmessage=e=>setTimeout(()=>handler(e),100);}
+    set onmessage(handler){super.onmessage=e=>setTimeout(()=>{handler(e);const packet=JSON.parse(e.data);if(packet.type==='state')window.deliveredPhase=packet.game?.phase;},100);}
    };
    document.querySelector('#enter').click();`);
   const until=async(expression,timeout=10000)=>{const end=Date.now()+timeout;while(!await evaluate(expression)){assert.ok(Date.now()<end,'Timed out: '+expression);await new Promise(r=>setTimeout(r,50));}};
@@ -79,7 +79,7 @@ try {
   await evaluate(`(async()=>{const result=await fetch('/api/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Luffy',code:document.querySelector('.room-code').textContent})}).then(r=>r.json());window.guestId=result.id;window.guestSocket=new NativeSocket('ws://localhost:3107/ws');guestSocket.onopen=()=>guestSocket.send(JSON.stringify({type:'auth',token:result.token}));})()`);
   await until("!document.querySelector('#start-party').disabled");
   await evaluate("document.querySelector('#start-party').click()");
-  await until("!document.querySelector('#game').hidden&&document.querySelector('#game-message').textContent===''");
+  await until("window.deliveredPhase==='fight'&&!document.querySelector('#game').hidden&&document.querySelector('#game-message').textContent===''");
   await evaluate(`window.inputPackets=[];window.receivedStates=[];window.playerDraws=[];window.measureInputs=true;window.inputStarted=performance.now();window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyD'}));window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyJ'}));window.dispatchEvent(new KeyboardEvent('keyup',{code:'KeyJ'}));setTimeout(()=>window.dispatchEvent(new KeyboardEvent('keyup',{code:'KeyD'})),180);`);
   await new Promise(resolve=>setTimeout(resolve,1200));
   const report=await evaluate(`(()=>{const packets=window.inputPackets,states=window.receivedStates;return {simulatedRoundTripDelayMs:200,inputPackets:packets.length,meanInputIntervalMs:(packets.at(-1).at-packets[0].at)/(packets.length-1),quickAttackSent:packets.some(p=>p.commands.some(c=>c.input.presses.basic)),quickAttackOnServer:states.some(s=>s.state.game.players.some(p=>p.id!==window.guestId&&p.attack)),predictedMovementBeforeReply:window.playerDraws.filter(p=>p.at-window.inputStarted<90).some((p,i,draws)=>i>0&&p.x>draws[0].x+1)};})()`);

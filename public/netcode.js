@@ -24,6 +24,12 @@ export class InputQueue {
   }
  }
  next(){
+  // A jitter burst must not leave movement permanently queued behind real time.
+  // Keep a small batching cushion and every action's original direction/order.
+  // The world still advances only once per server tick (no catch-up speed boost).
+  while(this.queue.length>3&&!ACTIONS.some(key=>this.queue[0].input.presses[key])){
+   this.ack=this.queue.shift().seq;
+  }
   const command=this.queue.shift();
   if(!command)return {...this.held,presses:{}};
   this.ack=command.seq;this.held=command.input;
