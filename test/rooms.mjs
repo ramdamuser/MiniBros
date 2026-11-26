@@ -1,12 +1,13 @@
+import {SnapshotDecoder} from '../public/protocol.js';
 import http from 'node:http';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
 const base=process.env.TEST_URL||'http://127.0.0.1:3000';
 function request(path,data){return new Promise((resolve,reject)=>{const req=http.request(base+path,{method:data?'POST':'GET',headers:{'Content-Type':'application/json'}},res=>{let raw='';res.on('data',chunk=>raw+=chunk);res.on('end',()=>resolve({status:res.statusCode,data:res.headers['content-type'].includes('json')?JSON.parse(raw):raw}));});req.on('error',reject);req.end(data?JSON.stringify(data):undefined);});}
 function connect(token){return new Promise((resolve,reject)=>{
- const ws=new WebSocket(base.replace('http','ws')+'/ws');const states=[];
+ const ws=new WebSocket(base.replace('http','ws')+'/ws');const states=[];const decoder=new SnapshotDecoder();
  ws.on('error',reject);ws.on('open',()=>ws.send(JSON.stringify({type:'auth',token})));
- ws.on('message',raw=>{const state=JSON.parse(raw);states.push(state);if(state.type==='welcome')resolve({ws,states});});
+ ws.on('message',raw=>{let state=JSON.parse(raw);if(Array.isArray(state))state=decoder.decode(state[2],state[1]);states.push(state);if(state.type==='welcome')resolve({ws,states});});
  ws.on('close',code=>{if(!states.length)reject(Error(`Closed ${code}`));});
 });}
 async function until(fn){const end=Date.now()+5000;while(!fn()){assert.ok(Date.now()<end,'Timed out waiting for server state');await new Promise(r=>setTimeout(r,10));}}

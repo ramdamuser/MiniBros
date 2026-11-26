@@ -1,7 +1,8 @@
+import {SnapshotDecoder} from './protocol.js';
 import {ACTIONS,BUTTONS,cleanInput,FIXED_DT,MatchView} from './netcode.js';
 export class Multiplayer {
  constructor({token,id,onState,onStatus,onExpired}){
-  this.token=token;this.view=new MatchView(id);this.onState=onState;this.onStatus=onStatus;this.onExpired=onExpired;
+  this.decoder=new SnapshotDecoder();this.token=token;this.view=new MatchView(id);this.onState=onState;this.onStatus=onStatus;this.onExpired=onExpired;
   this.seq=0;this.generation=0;this.outbox=[];this.accumulator=0;this.lastHeld={};this.edges={};this.ready=false;this.closed=false;this.lastSend=0;this.rtt=0;
   this.connect();
   this.heartbeat=setInterval(()=>{if(this.ready)this.socket.send(JSON.stringify({type:'ping',at:performance.now()}));},1000);
@@ -12,10 +13,15 @@ export class Multiplayer {
   socket.onopen=()=>socket.send(JSON.stringify({type:'auth',token:this.token}));
   socket.onmessage=e=>{
    if(this.socket!==socket||this.closed)return;
-   const packet=JSON.parse(e.data);
+   let packet=JSON.parse(e.data);
+   if(Array.isArray(packet)&&packet[0]==='snapshot'){
+    packet=this.decoder.decode(packet[2],packet[1]);
+    if(!packet){socket.send(JSON.stringify({type:'resync'}));return;}
+   }
    if(packet.type==='pong'){this.rtt=Math.round(performance.now()-packet.at);return;}
    if(packet.type!=='welcome'&&packet.type!=='state')return;
    if(packet.type==='welcome'){
+    this.decoder.reset();
     this.seq=packet.ack;this.outbox=[];this.edges={};this.lastHeld={};this.accumulator=0;this.view.reset();this.lastCommand=null;this.ready=true;this.onStatus('connected');
    }
    if(this.generation!==packet.generation||this.view.game?.round!==packet.game?.round||this.view.game?.phase!==packet.game?.phase){

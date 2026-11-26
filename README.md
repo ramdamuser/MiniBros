@@ -126,3 +126,62 @@ Render configuration remains a Node Web Service with build command `npm ci` (or 
 
 Audio is synthesized, with separate master, SFX, and music gains. Browser audio starts after the first pointer interaction. Headless Chrome checks cover singleplayer launch, arena rendering, countdown progression, keyboard movement, and parry rendering, including when browser policy blocks controller access. Visual polish, actual gamepad hardware, and cross-device latency testing still require manual verification.
 # MiniBros
+
+### Network pacing and smoothing
+
+The server runs the existing simulation at a fixed 1/60 second and broadcasts at
+most once per 50 ms of wall time (20 Hz, with timer jitter). Catch-up simulation
+never emits a burst of snapshots. TCP no-delay is explicit; WebSocket compression
+remains disabled to avoid compression CPU overhead.
+
+`public/protocol.js` is the shared snapshot codec, imported by `server.mjs` and
+`public/multiplayer.js` and served by the server's static route. No additional
+package or integration step is required. Deploy client and server together.
+Snapshots use versioned compact arrays with a field dictionary in full frames.
+Deltas contain only changed game fields and changed player properties. Nested
+attack/effect state is preserved intact, and numeric values are not quantized.
+Each room serializes once per broadcast; only the input acknowledgement envelope
+is specific to a connection. Input/authentication/heartbeat messages retain their
+small JSON format.
+
+A per-connection revision tracks which snapshot was sent. A nonempty WebSocket
+send buffer skips that connection's snapshot; the next writable broadcast sends a
+full baseline if needed. New connections start from a full baseline. Clients
+reject mismatched delta revisions and request resynchronization. The decoder uses
+copy-on-write rows so later deltas cannot corrupt interpolation history.
+
+Local prediction still calls the shared engine at 60 Hz, replays only commands
+newer than the server acknowledgement, and decays small visual corrections.
+Remote positions interpolate 100 ms behind simulation timestamps, using a clock
+offset estimate that filters positive delivery jitter. Eliminations, round changes,
+and large corrections remain immediate. A stall longer than the buffer can still
+freeze remote movement until delivery resumes; interpolation cannot recover data
+that has not arrived.
+
+Code inspection identified these sources of avoidable work and uneven movement:
+
+- Previously, complete room/game JSON was serialized separately for every socket
+  every broadcast, including unchanged fighter metadata and combat state.
+- Interpolation used arrival times, so uneven delivery stretched/compressed the
+  apparent time between otherwise evenly spaced simulation states.
+- Every idle input tick allocated replacement objects; prediction allocated a
+  simulation context per replay and cloned via JSON stringify/parse.
+- Effect filtering and contender filtering allocated arrays every simulation
+  tick. Effects now compact in place, and contender arrays are built only when
+  round resolution is possible. Session housekeeping runs once per second.
+
+The existing server already separated 60 Hz simulation from roughly 20 Hz state
+updates, and already implemented input sequencing, prediction and reconciliation.
+No synchronous filesystem access or per-tick logging was found. Event-driven
+combat allocations, input history and immutable network history remain intentional;
+this is not an allocation-free engine. Hitboxes, tuning, physics formulas, combat
+ordering and controls are unchanged.
+
+Validation: `npm test` includes codec fidelity, optional combat fields, missing
+baseline recovery, rematches, and jittered timestamp interpolation. The deterministic
+movement fixture measures 84% fewer snapshot bytes than full array keyframes;
+this is not a production bandwidth or CPU benchmark. `npm run test:abilities`
+checks controls/display behavior. With the server running, `node test/rooms.mjs`
+checks real WebSocket authentication, matches, input acknowledgement and reconnects.
+Render CPU/GC traces and real WAN measurements are still needed to attribute the
+reported production freezes conclusively.

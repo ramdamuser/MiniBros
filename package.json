@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node test/engine.mjs && node test/netcode.mjs && node test/multiplayer.mjs && node test/balance.mjs",
+    "test": "node test/engine.mjs && node test/netcode.mjs && node test/protocol.mjs && node test/multiplayer.mjs && node test/balance.mjs",
     "test:abilities": "node test/abilities.mjs"
   },
   "dependencies": {

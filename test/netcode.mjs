@@ -52,3 +52,11 @@ assert.equal(actions.next().presses.jump,true,'Separate presses remain separate 
 while(actions.queue.length)actions.next();
 assert.equal(actions.ack,12);assert.deepEqual(actions.next().presses,{});
 console.log('Jitter regression: 18 queued frames reduced to 2 after one tick; action order/direction retained.');
+
+const jitterView=new MatchView('a');
+const j0=state(),j1=state(),j2=state();j1.players[1].x+=60;j2.players[1].x+=120;
+jitterView.receive({game:j0,generation:1,ack:0,tick:0},0);
+jitterView.receive({game:j1,generation:1,ack:0,tick:3},90);
+jitterView.receive({game:j2,generation:1,ack:0,tick:6},100);
+assert.equal(jitterView.render(175,FIXED_DT).players[1].x,890,'Arrival jitter cannot distort simulation snapshot spacing');
+console.log('Simulation timestamp interpolation regression passed.');

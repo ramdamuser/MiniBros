@@ -292,6 +292,10 @@ function updatePhysics(state, player, dt, movement, prediction) {
 }
 
 function finishRoundIfNeeded(state) {
+  // Most ticks cannot end a round; avoid allocating a contender array then.
+  let aliveCount = 0;
+  for (const player of state.players) if (player.alive) aliveCount++;
+  if (aliveCount > 1 && state.time > 0) return;
   const alive = state.players.filter(player => player.alive);
   if (alive.length > 1 && state.time > 0) return;
 
@@ -313,7 +317,10 @@ function finishRoundIfNeeded(state) {
 
 export function step(state, inputs, dt, prediction = false) {
   dt = Math.min(dt, 1 / 30);
-  state.effects = state.effects.filter(effect => (effect.life -= dt) > 0);
+  // Compact in place while retaining effect order and the exact lifetime rule.
+  let effectsKept = 0;
+  for (const effect of state.effects) if ((effect.life -= dt) > 0) state.effects[effectsKept++] = effect;
+  state.effects.length = effectsKept;
   if (state.phase !== 'fight') {
     state.clock -= dt;
     if (state.phase === 'countdown' && state.clock <= 0) {
