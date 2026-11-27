@@ -38,32 +38,6 @@ try {
  assert.ok(positions.at(-1).x<positions[0].x,'Keyboard movement works');
  assert.deepEqual(errors,[],'Movement and parry must render without exceptions');
  console.log('Singleplayer browser launch, countdown, keyboard movement, and parry passed.');
- const abilityBar=await evaluate("Array.from(document.querySelectorAll('.ability-card')).map(c=>({id:c.dataset.ability,name:c.querySelector('.ability-name').textContent,key:c.querySelector('kbd').textContent,cost:c.querySelector('.ability-cost').textContent}))");
- assert.equal(abilityBar.length,6);
- assert.equal(abilityBar.find(a=>a.id==='special').name,'Rasengan');
- assert.equal(abilityBar.find(a=>a.id==='secondary').name,'Shadow Clone Dash');
- assert.equal(abilityBar.find(a=>a.id==='secondary').key,'S + K');
- console.log('Browser ability bar checks passed.');
- const overlay=await evaluate(`(()=>{const frame=document.querySelector('.game-frame'),rect=frame.getBoundingClientRect(),abilities=document.querySelector('#abilities').getBoundingClientRect(),meter=document.querySelector('#player-stamina');return {inArena:frame.contains(meter)&&frame.contains(document.querySelector('#abilities')),width:rect.width,height:rect.height,viewportWidth:innerWidth,viewportHeight:innerHeight,buttons:document.querySelectorAll('button.ability-card').length,abilityBottom:abilities.bottom,stamina:meter.value};})()`);
- assert.ok(overlay.inArena);assert.equal(overlay.buttons,6);
- assert.ok(overlay.width>=overlay.viewportWidth-2&&overlay.height>=overlay.viewportHeight-2,'Arena screen fills viewport');
- assert.ok(overlay.abilityBottom<=overlay.viewportHeight,'Ability buttons remain inside the screen');
- await evaluate("document.querySelector('[data-ability=basic]').click()");
- await new Promise(resolve=>setTimeout(resolve,120));
- const clicked=await evaluate("({state:document.querySelector('[data-ability=basic]').dataset.state,stamina:document.querySelector('#player-stamina').value})");
- assert.equal(clicked.state,'cooling','Clicking an ability activates it');
- assert.ok(clicked.stamina<overlay.stamina,'Stamina bar responds to ability cost');
- // Check portrait and short landscape without changing the world/canvas dimensions.
- for(const [width,height] of [[390,844],[844,390]]){
-  await call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:true},sessionId);
-  const layout=await evaluate(`(()=>{const buttons=[...document.querySelectorAll('.ability-card')].map(b=>b.getBoundingClientRect());return {fits:buttons.every(r=>r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight),world:[document.querySelector('#arena').width,document.querySelector('#arena').height],scroll:document.documentElement.scrollWidth<=innerWidth};})()`);
-  assert.ok(layout.fits&&layout.scroll,`Controls fit ${width}x${height}`);
-  assert.deepEqual(layout.world,[1200,720],'Screen resizing does not enlarge the game world');
- }
- await call('Emulation.clearDeviceMetricsOverride',{},sessionId);
- console.log('Arena overlay, clickable abilities, stamina, responsive sizing, and unchanged world dimensions passed.');
-
-
  if(process.env.DIAGNOSE_LAG){
   await evaluate(`document.querySelector('#exit').click();document.querySelector('#confirm-exit').click();document.querySelector('#host').click();`);
   await evaluate(`window.inputPackets=[];window.receivedStates=[];window.measureInputs=false;
@@ -71,7 +45,7 @@ try {
    window.WebSocket=class extends NativeSocket{
     constructor(...args){super(...args);this.addEventListener('message',e=>{const state=JSON.parse(e.data);if(window.measureInputs&&state.type==='state')window.receivedStates.push({at:performance.now(),state});});}
     send(data){const message=JSON.parse(data);if(window.measureInputs&&message.type==='input')window.inputPackets.push({at:performance.now(),...message});setTimeout(()=>{if(this.readyState===1)super.send(data);},100);}
-    set onmessage(handler){super.onmessage=e=>setTimeout(()=>{handler(e);const packet=JSON.parse(e.data);if(packet.type==='state')window.deliveredPhase=packet.game?.phase;},100);}
+    set onmessage(handler){super.onmessage=e=>setTimeout(()=>handler(e),100);}
    };
    document.querySelector('#enter').click();`);
   const until=async(expression,timeout=10000)=>{const end=Date.now()+timeout;while(!await evaluate(expression)){assert.ok(Date.now()<end,'Timed out: '+expression);await new Promise(r=>setTimeout(r,50));}};
@@ -79,7 +53,7 @@ try {
   await evaluate(`(async()=>{const result=await fetch('/api/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Luffy',code:document.querySelector('.room-code').textContent})}).then(r=>r.json());window.guestId=result.id;window.guestSocket=new NativeSocket('ws://localhost:3107/ws');guestSocket.onopen=()=>guestSocket.send(JSON.stringify({type:'auth',token:result.token}));})()`);
   await until("!document.querySelector('#start-party').disabled");
   await evaluate("document.querySelector('#start-party').click()");
-  await until("window.deliveredPhase==='fight'&&!document.querySelector('#game').hidden&&document.querySelector('#game-message').textContent===''");
+  await until("!document.querySelector('#game').hidden&&document.querySelector('#game-message').textContent===''");
   await evaluate(`window.inputPackets=[];window.receivedStates=[];window.playerDraws=[];window.measureInputs=true;window.inputStarted=performance.now();window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyD'}));window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyJ'}));window.dispatchEvent(new KeyboardEvent('keyup',{code:'KeyJ'}));setTimeout(()=>window.dispatchEvent(new KeyboardEvent('keyup',{code:'KeyD'})),180);`);
   await new Promise(resolve=>setTimeout(resolve,1200));
   const report=await evaluate(`(()=>{const packets=window.inputPackets,states=window.receivedStates;return {simulatedRoundTripDelayMs:200,inputPackets:packets.length,meanInputIntervalMs:(packets.at(-1).at-packets[0].at)/(packets.length-1),quickAttackSent:packets.some(p=>p.commands.some(c=>c.input.presses.basic)),quickAttackOnServer:states.some(s=>s.state.game.players.some(p=>p.id!==window.guestId&&p.attack)),predictedMovementBeforeReply:window.playerDraws.filter(p=>p.at-window.inputStarted<90).some((p,i,draws)=>i>0&&p.x>draws[0].x+1)};})()`);

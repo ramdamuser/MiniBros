@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
 import {match,step} from '../public/engine.js';
-import {getMove} from '../public/balance.js';
 const make=()=>{const s=match([{id:'a',name:'Naruto'},{id:'b',name:'Ippo'}]);s.phase='fight';s.players[0].x=550;s.players[1].x=600;for(const p of s.players){p.y=500;p.ground=true;}return s;};
 const advance=(s,inputs={},n=1)=>{for(let i=0;i<n;i++)step(s,inputs,1/60);};
 let s=make();advance(s,{a:{jump:true}});assert.equal(s.players[0].jumps,1);advance(s,{},2);advance(s,{a:{jump:true}});assert.equal(s.players[0].jumps,2);advance(s,{},2);advance(s,{a:{jump:true}});assert.equal(s.players[0].jumps,2);
 s=make();advance(s,{a:{basic:true}},8);assert.ok(s.players[1].damage>0,'basic hit damages opponent');const damage=s.players[1].damage;advance(s,{a:{basic:true}},30);assert.equal(s.players[1].damage,damage,'holding attack does not auto spam');
 s=make();advance(s,{a:{basic:true},b:{parry:true}},7);assert.equal(s.players[1].damage,0);assert.ok(s.players[0].stun>0,'parry stuns attacker');
 s=make();s.players[1].prev.parry=true;advance(s,{a:{basic:true},b:{parry:true}},7);assert.equal(s.players[1].damage,0,'block absorbs damage');assert.ok(s.players[1].stamina<90,'block costs stamina');
-s=make();s.players[0].stamina=getMove('Naruto',true,'neutral',false).staminaCost;advance(s,{a:{special:true}});assert.ok(s.players[0].stamina<1);assert.ok(s.players[0].exhaust>0);
+s=make();s.players[0].stamina=30;advance(s,{a:{special:true}});assert.ok(s.players[0].stamina<1);assert.ok(s.players[0].exhaust>0);
 s=make();s.players[1].y=900;advance(s);assert.equal(s.phase,'round');assert.equal(s.players[0].wins,1);advance(s,{},181);assert.equal(s.phase,'countdown');advance(s,{},181);s.players[1].y=900;advance(s);assert.equal(s.phase,'over');assert.equal(s.players[0].wins,2);
 s=make();s.time=0;s.players[0].kos=1;advance(s);assert.equal(s.winner,'a','KO score resolves timer');
 s=make();s.time=0;advance(s);assert.equal(s.phase,'fight');assert.ok(s.players.every(p=>p.damage===150),'tied timer starts sudden death');
