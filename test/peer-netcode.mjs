@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import {PeerMultiplayer} from '../public/peer-multiplayer.js';
+import {MatchView} from '../public/netcode.js';
+import {match} from '../public/engine.js';
+const players=[{id:'host',name:'Naruto'},{id:'guest',name:'Luffy'}];
+const client=Object.create(PeerMultiplayer.prototype);
+Object.assign(client,{id:'guest',generation:2,lastTick:-1,room:{host:'host',players,started:true},
+ view:new MatchView('guest'),outbox:[],snapshotTimes:[],onState(){}});
+const game=match(players,'day');
+client.receive({generation:2,tick:100,ack:0,game},1000);
+assert.equal(client.lastTick,100);
+client.receive({generation:2,tick:99,ack:0,game:{invalid:true}},1001);
+client.receive({generation:1,tick:200,ack:0,game:{invalid:true}},1002);
+assert.equal(client.lastTick,100,'Reordered and old-match frames are ignored');
+client.receive({generation:2,tick:120,ack:0,game},1300);
+assert.equal(client.lastTick,120,'Missing snapshots do not require baseline repair');
+let failure;
+client.fail=message=>{failure=message;};
+await client.signalingMessage({type:'room',started:true,host:'host',players:[players[0]],generation:2});
+assert.match(failure,/player left/i,'Roster removal ends the match before a ghost fighter can remain');
+assert.equal(client.room.players.length,2,'Departed roster is not installed into an active match');
+console.log('Peer netcode checks passed: unordered snapshots, loss recovery, match generations and roster departure.');

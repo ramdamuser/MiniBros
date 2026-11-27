@@ -39,3 +39,33 @@ try{
  console.log('Room and WebSocket checks passed: authority, authentication, streaming, quick taps, duplicates, reconnect and stale-match input.');
 }finally{a?.ws.close();b?.ws.close();await request('/api/leave',{token:guest.token});await request('/api/leave',{token:host.token});}
 assert.equal((await request('/api/join',{name:'Ippo',code:host.room.code})).status,404);
+
+// WebRTC signaling must remain room-scoped and cannot start server simulation.
+const peerHost=(await request('/api/create',{name:'Naruto',limit:3,transport:'webrtc'})).data;
+const peerGuest=(await request('/api/join',{name:'Luffy',code:peerHost.room.code})).data;
+const outsider=(await request('/api/create',{name:'Ippo'})).data;
+let ph,pg,out;
+try{
+ ph=await connect(peerHost.token);pg=await connect(peerGuest.token);out=await connect(outsider.token);
+ assert.ok(ph.states[0].rtcConfig.iceServers.length);
+ assert.equal((await request('/api/start',{token:peerHost.token})).status,409,'Unconnected peers cannot start');
+ pg.ws.send(JSON.stringify({type:'rtc',to:peerHost.id,signal:{hello:true}}));
+ await until(()=>ph.states.some(s=>s.type==='rtc'&&s.from===peerGuest.id));
+ out.ws.send(JSON.stringify({type:'rtc',to:peerHost.id,signal:{hello:true}}));
+ ph.ws.send(JSON.stringify({type:'peer-ready',players:[peerGuest.id]}));
+ await new Promise(r=>setTimeout(r,100));
+ assert.ok(!ph.states.some(s=>s.type==='rtc'&&s.from===outsider.id),'Cross-room signals must not arrive');
+ assert.equal((await request('/api/start',{token:peerHost.token})).status,200);
+ await until(()=>pg.states.some(s=>s.type==='room'&&s.started&&s.generation===1));
+ assert.ok(pg.states.every(s=>!s.game),'Render must not run a WebRTC room simulation');
+ assert.equal((await request('/api/join',{name:'Ippo',code:peerHost.room.code})).status,409,'Active peer rooms reject late joins');
+ assert.equal((await request('/api/start',{token:peerGuest.token})).status,403);
+ assert.equal((await request('/api/start',{token:peerHost.token})).status,200,'Host can start a rematch');
+ await until(()=>pg.states.some(s=>s.generation===2));
+ ph.ws.close();await until(()=>pg.ws.readyState===WebSocket.CLOSED);
+ assert.equal((await request('/api/join',{name:'Ippo',code:peerHost.room.code})).status,404,'Host departure closes room');
+ console.log('WebRTC signaling checks passed: room isolation, readiness, host authority, rematch and departure.');
+}finally{
+ ph?.ws.close();pg?.ws.close();out?.ws.close();
+ await request('/api/leave',{token:peerGuest.token});await request('/api/leave',{token:peerHost.token});await request('/api/leave',{token:outsider.token});
+}

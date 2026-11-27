@@ -73,7 +73,7 @@ try {
     send(data){const message=JSON.parse(data);if(window.measureInputs&&message.type==='input')window.inputPackets.push({at:performance.now(),...message});setTimeout(()=>{if(this.readyState===1)super.send(data);},100);}
     set onmessage(handler){super.onmessage=e=>setTimeout(()=>{handler(e);const packet=JSON.parse(e.data);if(packet.type==='state')window.deliveredPhase=packet.game?.phase;},100);}
    };
-   document.querySelector('#enter').click();`);
+   document.querySelector('#transport').value='server';document.querySelector('#enter').click();`);
   const until=async(expression,timeout=10000)=>{const end=Date.now()+timeout;while(!await evaluate(expression)){assert.ok(Date.now()<end,'Timed out: '+expression);await new Promise(r=>setTimeout(r,50));}};
   await until("!!document.querySelector('.room-code')");
   await evaluate(`(async()=>{const result=await fetch('/api/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Luffy',code:document.querySelector('.room-code').textContent})}).then(r=>r.json());window.guestId=result.id;window.guestSocket=new NativeSocket('ws://localhost:3107/ws');guestSocket.onopen=()=>guestSocket.send(JSON.stringify({type:'auth',token:result.token}));})()`);

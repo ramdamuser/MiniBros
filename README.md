@@ -198,3 +198,62 @@ A dash means no fresh sample is available. Ping samples expire after three
 seconds. Snapshot receipt age is not the age of the server's simulated state,
 and none of these values directly measures movement-to-display delay between
 two players. Compare both players' panels when investigating lag.
+
+### Player-hosted WebRTC
+
+**Host Party → Multiplayer connection → Player-hosted WebRTC** is the default
+for new parties in the UI. Choose **Server-hosted WebSocket** to use the original
+Render-authoritative mode. The HTTP API defaults to server mode for compatibility.
+Deploy the new client modules and server together; no extra npm packages are needed.
+
+Render keeps room membership and relays authenticated, same-room connection
+signaling. The party host's browser runs the shared 60 Hz simulation. Guests send
+sequenced inputs on a reliable ordered data channel; the host sends independent
+full snapshots at up to 20 Hz on an unordered channel with no retransmissions.
+Dropped snapshots need no delta baseline repair, and old/reordered snapshots are
+ignored. Prediction and reconciliation still run for guests. The host renders its
+own authoritative state directly. The existing 100 ms guest interpolation buffer
+is unchanged. Gameplay does not pass through Render in this mode.
+
+Keep the host's tab open and active: background browser throttling or a slow host
+can stall the simulation. There is host advantage, and the host can manipulate
+match outcomes. This mode is intended for casual trusted parties. There is no
+mid-match authority migration: a failed player connection ends the party on the
+host, and the others return to the lobby. Closing the host or losing its signaling
+connection also closes the room. Create a new party after a failure, or choose
+server-hosted mode if peer connections cannot be established. There is no silent
+transport fallback that would change match authority.
+
+The network debug panel labels WebRTC host/guest, Direct/TURN relay, and host RTT
+(or the worst connected peer RTT on the host). Host snapshot timing measures its
+local simulation updates, not network delivery. Neither RTT nor the connection
+path guarantees a particular player-to-player display delay.
+
+#### TURN configuration for internet play
+
+A public STUN server is configured by default. Direct connectivity will not work
+on every network; configure a TURN service for reliable connectivity across
+restrictive NAT/firewalls. Render serves signaling, not the TURN relay.
+Use HTTPS in production (localhost works for development).
+
+Set these environment variables on the Node/Render service:
+
+- `STUN_URLS`: optional comma-separated STUN URLs; defaults to
+  `stun:stun.l.google.com:19302`.
+- `TURN_URLS`: comma-separated TURN URLs supplied by your relay service, e.g.
+  `turn:turn.example.com:3478?transport=udp,turns:turn.example.com:5349?transport=tcp`.
+- `TURN_SECRET`: the relay's TURN REST shared secret (coturn `use-auth-secret` /
+  `static-auth-secret`, or a compatible service). Both TURN variables are required.
+
+The server generates per-session, 24-hour HMAC-SHA1 TURN credentials and sends
+only those credentials to authenticated room clients. The shared secret stays on
+the server. Do not paste it into browser code. TURN providers that require a
+separate credentials API are not supported by this configuration. Relay location
+and routing affect latency; a relayed connection is not necessarily faster than
+the existing server-hosted mode. TURN connectivity and real WAN performance must
+be tested with your configured service and players' actual networks.
+
+Verification: `npm test`; with a server running, `node test/rooms.mjs` also checks
+signaling isolation/readiness and host departure. On macOS with Chrome installed,
+`node test/webrtc-browser.mjs` launches four real browser clients and checks peer
+channels, movement, quick taps, diagnostics, rematches, and host departure.
