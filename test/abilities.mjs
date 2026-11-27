@@ -1,0 +1,37 @@
+import assert from 'node:assert/strict';
+import {abilityStates} from '../public/abilities.js';
+import {match} from '../public/engine.js';
+import {getMove, getFighterTuning, BALANCE} from '../public/balance.js';
+const settings={keys:{basic:'KeyJ',special:'KeyK',up:'KeyW',down:'KeyS',dash:'ShiftLeft',parry:'KeyL'},pad:{basic:2,special:3,dash:5,parry:4}};
+for(const name of Object.keys(BALANCE.fighters)){
+ const game=match([{name,id:'you'},{name:'Luffy',id:'bot'}]);game.phase='fight';
+ const player=game.players[0];
+ let abilities=abilityStates(game,'you',{},settings);
+ assert.equal(abilities.length,6);
+ assert.equal(abilities[1].name,getMove(name,true,'neutral').name);
+ assert.equal(abilities[2].name,getMove(name,true,'down').name);
+ assert.equal(abilities[1].cooldown,getMove(name,true,'neutral').cooldown);
+ assert.equal(abilities[1].cost,getMove(name,true,'neutral').staminaCost);
+ assert.equal(abilities[4].cost,getFighterTuning(name).movement.dashStaminaCost);
+ assert.equal(abilities[2].binding,'S + K');
+ player.cool=2.34;
+ abilities=abilityStates(game,'you',{},settings);
+ assert.ok(abilities.slice(0,4).every(a=>a.status==='2.4s'&&a.state==='cooling'));
+ assert.ok(abilities.slice(4).every(a=>a.remaining===0&&a.state==='ready'));
+ player.cool=0;player.stamina=0;
+ assert.equal(abilityStates(game,'you',{},settings)[1].status,'Low stamina');
+ player.exhaust=.5;
+ assert.ok(abilityStates(game,'you',{},settings).every(a=>a.status==='Exhausted 0.5s'));
+ player.exhaust=0;player.stun=.2;
+ assert.ok(abilityStates(game,'you',{},settings).every(a=>a.status==='Stunned 0.2s'));
+ player.stun=0;player.stamina=100;player.ground=false;
+ assert.equal(abilityStates(game,'you',{down:true},settings)[0].name,getMove(name,false,'down',true).name);
+ player.alive=false;
+ assert.ok(abilityStates(game,'you',{},settings).every(a=>a.status==='Knocked out'));
+}
+const game=match([{name:'Naruto',id:'you'}]);
+assert.ok(abilityStates(game,'you',{},settings).every(a=>a.status==='Get ready'));
+settings.keys.special='KeyX';settings.keys.down='ArrowDown';
+assert.equal(abilityStates(game,'you',{},settings)[2].binding,'Down + X');
+assert.deepEqual(abilityStates(game,'missing',{},settings),[]);
+console.log('Ability display checks passed: roster, configured costs/cooldowns, shared timers, availability, aerial variants, and rebound keys.');

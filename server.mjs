@@ -5,6 +5,7 @@ import {performance} from 'node:perf_hooks';
 import {WebSocketServer,WebSocket} from 'ws';
 import {match,step,roster} from './public/engine.js';
 import {InputQueue,FIXED_DT} from './public/netcode.js';
+import {SnapshotEncoder} from './public/protocol.js';
 const rooms=new Map(),sessions=new Map();
 const send=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(data));};
 function snapshot(r){return {code:r.code,host:r.host,limit:r.limit,theme:r.theme,players:r.players.map(({id,name})=>({id,name})),generation:r.generation,game:r.game};}
@@ -49,7 +50,7 @@ const server=http.createServer(async(req,res)=>{
    else return send(res,404,{error:'Not found'});
    return send(res,200,{ok:true});
   }
-  const files={'/':'index.html','/app.js':'app.js','/engine.js':'engine.js','/netcode.js':'netcode.js','/multiplayer.js':'multiplayer.js','/style.css':'style.css'};
+  const files={'/':'index.html','/app.js':'app.js','/engine.js':'engine.js','/balance.js':'balance.js','/abilities.js':'abilities.js','/protocol.js':'protocol.js','/netcode.js':'netcode.js','/multiplayer.js':'multiplayer.js','/style.css':'style.css'};
   const file=files[url.pathname];if(!file){res.writeHead(404);return res.end('Not found');}
   res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html','Cache-Control':'no-cache'});
   res.end(await readFile(new URL(`./public/${file}`,import.meta.url)));
@@ -57,6 +58,7 @@ const server=http.createServer(async(req,res)=>{
 });
 const wss=new WebSocketServer({noServer:true,maxPayload:16384,perMessageDeflate:false});
 server.on('upgrade',(req,socket,head)=>{
+ socket.setNoDelay(true);
  const onError=()=>socket.destroy();socket.on('error',onError);
  if(req.url!=='/ws'){socket.destroy();return;}
  if(req.headers.origin){try{if(new URL(req.headers.origin).host!==req.headers.host){socket.destroy();return;}}catch{socket.destroy();return;}}
@@ -73,11 +75,12 @@ wss.on('connection',ws=>{
     session=message.type==='auth'?sessions.get(message.token):null;
     if(!session){ws.close(1008,'Room session expired');return;}
     clearTimeout(authTimer);session.socket?.close(4001,'Connection replaced');
-    session.socket=ws;session.input.reset(session.input.ack);session.seen=Date.now();session.inputAt=Date.now();
+    session.revision=0;session.socket=ws;session.input.reset(session.input.ack);session.seen=Date.now();session.inputAt=Date.now();
     ws.send(JSON.stringify({type:'welcome',...snapshot(session.room),ack:session.input.ack}));return;
    }
    if(session.socket!==ws)return;
    session.seen=Date.now();
+   if(message.type==='resync'){session.revision=0;return;}
    if(message.type==='ping'){ws.send(JSON.stringify({type:'pong',at:message.at}));return;}
    if(message.type!=='input'||message.generation!==session.room.generation)return;
    session.input.push(message.commands);session.inputAt=Date.now();
@@ -85,25 +88,38 @@ wss.on('connection',ws=>{
  });
  ws.on('close',()=>{clearTimeout(authTimer);if(session?.socket===ws){session.socket=null;session.input.reset(session.input.ack);session.room.inputs[session.id]={};}});
 });
-let previous=performance.now(),accumulator=0,tick=0;
+let previous=performance.now(),accumulator=0,tick=0,lastBroadcast=previous;
+// Session housekeeping does not belong in the 60 Hz simulation loop.
+setInterval(()=>{
+ const now=Date.now();
+ for(const [token,s] of sessions){
+  if(now-s.seen>15000)remove(token);
+  else if(now-s.inputAt>1000){s.input.reset(s.input.received);s.inputAt=now;}
+ }
+},1000).unref();
 setInterval(()=>{
  const now=performance.now();accumulator+=Math.min((now-previous)/1000,.25);previous=now;
- for(const [token,s] of sessions){
-  if(Date.now()-s.seen>15000)remove(token);
-  else if(Date.now()-s.inputAt>1000)s.input.reset(s.input.received);
- }
  while(accumulator>=FIXED_DT){
   accumulator-=FIXED_DT;tick++;
   for(const s of sessions.values())s.room.inputs[s.id]=s.input.next();
   for(const r of rooms.values())if(r.game)step(r.game,r.inputs,FIXED_DT);
  }
- // Broadcast current state once per ~50 ms; never flood catch-up snapshots.
- if(tick-lastBroadcast>=3){
-  lastBroadcast=tick;
-  const states=new Map([...rooms.values()].map(r=>[r,snapshot(r)]));
-  for(const s of sessions.values())if(s.socket?.readyState===WebSocket.OPEN&&s.socket.bufferedAmount<65536)
-   s.socket.send(JSON.stringify({type:'state',...states.get(s.room),ack:s.input.ack,tick}));
+ // Wall-clock pacing: at most one snapshot per 50 ms, including after a stall.
+ if(now-lastBroadcast<50)return;
+ lastBroadcast=now;
+ for(const r of rooms.values()){
+  r.encoder??=new SnapshotEncoder();
+  r.wire=r.encoder.encode(snapshot(r),tick);
  }
-},8).unref();
-let lastBroadcast=0;
+ for(const s of sessions.values()){
+  if(s.socket?.readyState!==WebSocket.OPEN)continue;
+  // Never append more simulation data behind stale queued frames. A skipped
+  // delta forces a full baseline on the next writable broadcast.
+  if(s.socket.bufferedAmount>0)continue;
+  const wire=s.room.wire;
+  const payload=s.revision===wire.base?wire.delta:wire.full;
+  s.socket.send('["snapshot",'+s.input.ack+','+payload+']');
+  s.revision=wire.revision;
+ }
+},4).unref();
 server.listen(Number(process.env.PORT)||3000,'0.0.0.0',()=>console.log('MiniBros: http://localhost:'+(process.env.PORT||3000)));
