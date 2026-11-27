@@ -99,4 +99,24 @@ function updateStamina(state){
   $('#stamina-value').textContent=player.exhaust>0?'Exhausted':`${Math.ceil(player.stamina)} / ${maximum}`;
 }
 
-let accumulator=0,lastEffect='',lastHudAt=0;function frame(t){const dt=Math.min((t-last)/1000||0,0.1);last=t;const controls=input();const networkStepped=network?.update(controls,dt,t);if(networkStepped)pendingAbilities.clear();if(game){if(!token&&!modal.open&&!document.hidden){accumulator+=dt;while(accumulator>=1/60){step(game,{you:controls},1/60);pendingAbilities.clear();accumulator-=1/60;}}const displayGame=network?.render(t,dt)||game;render(arena,displayGame,t/1000);abilityBar.update(displayGame,playerId||'you',controls,settings);updateStamina(displayGame);$('#timer').textContent=`${Math.floor(Math.max(0,game.time)/60)}:${String(Math.ceil(Math.max(0,game.time))%60).padStart(2,'0')}`;$('#round-label').textContent=`Round ${game.round} · First to 2 wins`;$('#game-message').textContent=game.phase==='countdown'?String(Math.max(1,Math.ceil(game.clock))):game.message;$('#rematch').hidden=game.phase!=='over'||!!token&&room.host!==playerId;if(t-lastHudAt>=100){lastHudAt=t;$('#hud').innerHTML=game.players.map(p=>`<div class="hud-card" style="--accent:${roster[p.name].color};opacity:${p.alive?1:.4}"><div><strong>${p.name}</strong><small>${p.id===(playerId||'you')?'YOU':p.bot?'CPU':`P${game.players.indexOf(p)+1}`} · ${'●'.repeat(p.wins)}${'○'.repeat(Math.max(0,2-p.wins))}</small></div><div><small>${p.exhaust?'EXHAUSTED':'STAMINA'}</small><div class="stamina"><span style="width:${Math.max(0,Math.min(100,p.stamina/getFighterTuning(p.name).stamina.maximum*100))}%"></span></div></div><b>${Math.round(p.damage)}%</b></div>`).join('');}const effect=game.effects[game.effects.length-1];if(effect&&effect.text+effect.x+effect.y!==lastEffect){lastEffect=effect.text+effect.x+effect.y;sound(effect.text==='PARRY'?750:180);}music(t);}else{render(preview,{theme,players:[{...fighter('Naruto','a',470),y:494},{...fighter('Luffy','b',730),y:494}],effects:[]},t/1000,true);}requestAnimationFrame(frame);}requestAnimationFrame(frame);
+const networkDebug=$('#network-debug'),networkValues=$('#network-values');
+networkDebug.open=settings.networkDebug===true;
+networkDebug.addEventListener('toggle',()=>{settings.networkDebug=networkDebug.open;save();});
+let lastNetworkDebugAt=-Infinity;
+function updateNetworkDebug(now){
+ networkDebug.hidden=!network||!game;
+ if(networkDebug.hidden||!networkDebug.open||now-lastNetworkDebugAt<250)return;
+ lastNetworkDebugAt=now;
+ const d=network.diagnostics(now),ms=value=>value===null?'—':`${Math.round(value)} ms`;
+ networkValues.textContent=[
+  `Connection       ${d.connected?'Connected':'Reconnecting'}`,
+  `Ping (RTT)       ${ms(d.rtt)}`,
+  `Snapshots        ${d.snapshotHz===null?'—':d.snapshotHz.toFixed(1)+' /s'}`,
+  `Max gap (2s)     ${ms(d.maxGap)}`,
+  `Last received    ${ms(d.snapshotAge)}`,
+  `Smoothing buffer ${d.interpolationMs} ms`,
+  `Unacked inputs   ${d.pendingInputs}`,
+  `Queued send      ${d.bufferedBytes} B`,
+ ].join('\n');
+}
+let accumulator=0,lastEffect='',lastHudAt=0;function frame(t){const dt=Math.min((t-last)/1000||0,0.1);last=t;updateNetworkDebug(t);const controls=input();const networkStepped=network?.update(controls,dt,t);if(networkStepped)pendingAbilities.clear();if(game){if(!token&&!modal.open&&!document.hidden){accumulator+=dt;while(accumulator>=1/60){step(game,{you:controls},1/60);pendingAbilities.clear();accumulator-=1/60;}}const displayGame=network?.render(t,dt)||game;render(arena,displayGame,t/1000);abilityBar.update(displayGame,playerId||'you',controls,settings);updateStamina(displayGame);$('#timer').textContent=`${Math.floor(Math.max(0,game.time)/60)}:${String(Math.ceil(Math.max(0,game.time))%60).padStart(2,'0')}`;$('#round-label').textContent=`Round ${game.round} · First to 2 wins`;$('#game-message').textContent=game.phase==='countdown'?String(Math.max(1,Math.ceil(game.clock))):game.message;$('#rematch').hidden=game.phase!=='over'||!!token&&room.host!==playerId;if(t-lastHudAt>=100){lastHudAt=t;$('#hud').innerHTML=game.players.map(p=>`<div class="hud-card" style="--accent:${roster[p.name].color};opacity:${p.alive?1:.4}"><div><strong>${p.name}</strong><small>${p.id===(playerId||'you')?'YOU':p.bot?'CPU':`P${game.players.indexOf(p)+1}`} · ${'●'.repeat(p.wins)}${'○'.repeat(Math.max(0,2-p.wins))}</small></div><div><small>${p.exhaust?'EXHAUSTED':'STAMINA'}</small><div class="stamina"><span style="width:${Math.max(0,Math.min(100,p.stamina/getFighterTuning(p.name).stamina.maximum*100))}%"></span></div></div><b>${Math.round(p.damage)}%</b></div>`).join('');}const effect=game.effects[game.effects.length-1];if(effect&&effect.text+effect.x+effect.y!==lastEffect){lastEffect=effect.text+effect.x+effect.y;sound(effect.text==='PARRY'?750:180);}music(t);}else{render(preview,{theme,players:[{...fighter('Naruto','a',470),y:494},{...fighter('Luffy','b',730),y:494}],effects:[]},t/1000,true);}requestAnimationFrame(frame);}requestAnimationFrame(frame);

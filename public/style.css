@@ -91,3 +91,10 @@ body.playing main>header{display:none}
  .stamina-label{font-size:10px;margin-bottom:3px}
  #game .touch-controls button{min-height:34px;padding:5px 10px}
 }
+
+#network-debug{position:absolute;top:140px;left:20px;z-index:3;max-width:calc(100% - 40px);padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:#101627eb;font-size:12px;color:var(--white)}
+#network-debug summary{cursor:pointer;color:var(--lime);min-height:24px;line-height:24px}
+#network-debug pre{font:12px/1.5 monospace;margin:6px 0;white-space:pre-wrap}
+#network-debug small{display:block;color:var(--muted);font-size:10px;line-height:1.4}
+#network-debug[open]{max-height:calc(100% - 150px);overflow:auto}
+@media(max-height:500px) and (orientation:landscape){#network-debug{top:85px;left:10px}#network-debug[open]{max-height:calc(100% - 95px)}}

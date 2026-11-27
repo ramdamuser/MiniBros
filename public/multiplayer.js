@@ -1,5 +1,5 @@
 import {SnapshotDecoder} from './protocol.js';
-import {ACTIONS,BUTTONS,cleanInput,FIXED_DT,MatchView} from './netcode.js';
+import {ACTIONS,BUTTONS,cleanInput,FIXED_DT,INTERPOLATION_MS,MatchView} from './netcode.js';
 export class Multiplayer {
  constructor({token,id,onState,onStatus,onExpired}){
   this.decoder=new SnapshotDecoder();this.token=token;this.view=new MatchView(id);this.onState=onState;this.onStatus=onStatus;this.onExpired=onExpired;
@@ -9,6 +9,7 @@ export class Multiplayer {
  }
  connect(){
   if(this.closed)return;
+  this.rtt=null;this.lastPong=null;this.snapshotTimes=[];
   const socket=this.socket=new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`);
   socket.onopen=()=>socket.send(JSON.stringify({type:'auth',token:this.token}));
   socket.onmessage=e=>{
@@ -18,7 +19,7 @@ export class Multiplayer {
     packet=this.decoder.decode(packet[2],packet[1]);
     if(!packet){socket.send(JSON.stringify({type:'resync'}));return;}
    }
-   if(packet.type==='pong'){this.rtt=Math.round(performance.now()-packet.at);return;}
+   if(packet.type==='pong'){this.lastPong=performance.now();this.rtt=Math.round(this.lastPong-packet.at);return;}
    if(packet.type!=='welcome'&&packet.type!=='state')return;
    if(packet.type==='welcome'){
     this.decoder.reset();
@@ -28,7 +29,12 @@ export class Multiplayer {
     this.outbox=[];this.edges={};this.lastHeld={};this.accumulator=0;this.lastCommand=null;
    }
    this.generation=packet.generation;
-   this.view.receive(packet,performance.now());this.onState(packet);
+   const now=performance.now();
+   if(packet.type==='state'&&packet.game){
+    this.snapshotTimes.push(now);
+    this.snapshotTimes=this.snapshotTimes.filter(at=>now-at<=2000);
+   }
+   this.view.receive(packet,now);this.onState(packet);
   };
   socket.onclose=e=>{
    if(this.socket!==socket||this.closed)return;
@@ -62,5 +68,20 @@ export class Multiplayer {
   return stepped;
  }
  render(now,dt){return this.view.render(now,dt);}
+ diagnostics(now=performance.now()){
+  const times=this.snapshotTimes.filter(at=>now-at<=2000);
+  const gaps=times.slice(1).map((at,i)=>at-times[i]);
+  const last=this.snapshotTimes.at(-1);
+  return {
+   connected:this.ready,
+   rtt:this.ready&&this.lastPong!==null&&now-this.lastPong<3000?this.rtt:null,
+   snapshotHz:gaps.length?1000*gaps.length/(times.at(-1)-times[0]):null,
+   maxGap:gaps.length?Math.max(...gaps):null,
+   snapshotAge:last===undefined?null:now-last,
+   interpolationMs:INTERPOLATION_MS,
+   pendingInputs:this.view.pending.length,
+   bufferedBytes:this.socket?.bufferedAmount||0,
+  };
+ }
  close(){this.closed=true;this.ready=false;clearInterval(this.heartbeat);clearTimeout(this.retry);this.socket?.close();this.view.reset();}
 }

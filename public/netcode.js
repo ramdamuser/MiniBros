@@ -1,5 +1,6 @@
 import {step} from './engine.js';
 export const FIXED_DT=1/60;
+export const INTERPOLATION_MS=100;
 export const BUTTONS=['left','right','up','down','jump','basic','special','parry','dash'];
 export const ACTIONS=['jump','basic','special','parry','dash'];
 function copy(value){
@@ -84,7 +85,7 @@ export class MatchView {
  }
  render(now,dt){
   if(!this.game)return null;
-  const target=now-(this.clockOffset||0)-100;
+  const target=now-(this.clockOffset||0)-INTERPOLATION_MS;
   let older=this.history[0],newer=older;
   for(const frame of this.history){if(frame.at<=target)older=frame;if(frame.at>=target){newer=frame;break;}newer=frame;}
   const blend=newer.at>older.at?Math.max(0,Math.min(1,(target-older.at)/(newer.at-older.at))):1;

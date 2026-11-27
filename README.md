@@ -185,3 +185,16 @@ checks controls/display behavior. With the server running, `node test/rooms.mjs`
 checks real WebSocket authentication, matches, input acknowledgement and reconnects.
 Render CPU/GC traces and real WAN measurements are still needed to attribute the
 reported production freezes conclusively.
+
+### Multiplayer network debug
+
+During a multiplayer match, expand **Network debug** on the left of the arena.
+The expanded/collapsed preference is saved in this browser. The panel updates
+four times per second and shows this player's connection status, latest fresh
+round-trip ping, received snapshots per second and maximum arrival gap over the
+last two seconds, time since the last snapshot arrived, the configured smoothing
+buffer, unacknowledged input count, and queued outgoing WebSocket bytes.
+A dash means no fresh sample is available. Ping samples expire after three
+seconds. Snapshot receipt age is not the age of the server's simulated state,
+and none of these values directly measures movement-to-display delay between
+two players. Compare both players' panels when investigating lag.
